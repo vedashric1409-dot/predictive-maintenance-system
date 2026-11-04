@@ -1,0 +1,13 @@
+venv/
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.env
+.git/
+predictive-maintenance-project.zip
+backend/app/main_backup*.py
+backend/database/
+backend/ml/
+backend/data/
+backend/app/ml/rul_model.pkl

@@ -1,0 +1,14 @@
+{
+    "model": "RandomForestRegressor",
+    "dataset": "NASA C-MAPSS FD001",
+    "training_engines": 100,
+    "testing_engines": 100,
+    "training_records": 20631,
+    "features": 25,
+    "rul_cap": 125,
+    "validation_mae": 10.745358472327345,
+    "validation_rmse": 15.863053736505952,
+    "test_mae": 13.728290070319005,
+    "test_rmse": 18.37623253127297,
+    "nasa_score": 576.375402932273
+}

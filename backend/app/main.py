@@ -1,10 +1,15 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+﻿from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import pandas as pd
 
 from app.schemas import SensorDataInput
 from app.ml.predictor import predict_single, predict_batch, metrics
+from app.database import (
+    initialize_database,
+    save_prediction,
+    get_prediction_history
+)
 
 app = FastAPI(title="Predictive Maintenance API")
 
@@ -21,6 +26,8 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+initialize_database()
+
 
 @app.get("/")
 def root():
@@ -34,14 +41,34 @@ def get_metrics():
 
 @app.post("/predict")
 def predict(data: SensorDataInput):
-    result = predict_single(data.to_model_input())
-    return result
+    try:
+        sensor_data = data.to_model_input()
+
+        result = predict_single(sensor_data)
+
+        history_id = save_prediction(
+            sensor_data,
+            result
+        )
+
+        result["history_id"] = history_id
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Prediction failed: {str(e)}"
+        )
 
 
 @app.post("/predict-batch")
 async def predict_batch_endpoint(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Please upload a CSV file.")
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload a CSV file."
+        )
 
     try:
         df = pd.read_csv(file.file)
@@ -54,6 +81,7 @@ async def predict_batch_endpoint(file: UploadFile = File(...)):
             "Torque_Nm": "Torque [Nm]",
             "Tool_wear_min": "Tool wear [min]",
         }
+
         df = df.rename(columns=rename_map)
 
         expected_columns = [
@@ -64,21 +92,69 @@ async def predict_batch_endpoint(file: UploadFile = File(...)):
             "Tool wear [min]",
         ]
 
-        missing = [col for col in expected_columns if col not in df.columns]
+        missing = [
+            col for col in expected_columns
+            if col not in df.columns
+        ]
+
         if missing:
             raise HTTPException(
                 status_code=400,
-                detail=f"Missing required columns: {missing}",
+                detail=f"Missing required columns: {missing}"
+            )
+
+        if df.empty:
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded CSV file is empty."
             )
 
         results = predict_batch(df)
 
+        for index, prediction in enumerate(results):
+            sensor_data = df.iloc[index][expected_columns].to_dict()
+
+            history_id = save_prediction(
+                sensor_data,
+                prediction
+            )
+
+            prediction["history_id"] = history_id
+
         return {
             "total_rows": len(results),
             "predictions": results,
+            "message": "Predictions saved successfully."
         }
 
     except HTTPException:
         raise
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Batch prediction failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Batch prediction failed: {str(e)}"
+        )
+
+
+@app.get("/history")
+def prediction_history(limit: int = 100):
+    if limit < 1 or limit > 1000:
+        raise HTTPException(
+            status_code=400,
+            detail="Limit must be between 1 and 1000."
+        )
+
+    try:
+        records = get_prediction_history(limit)
+
+        return {
+            "total_records": len(records),
+            "history": records
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not retrieve prediction history: {str(e)}"
+        )
